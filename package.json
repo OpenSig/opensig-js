@@ -9,6 +9,21 @@
   },
   "author": "dnpotter1@gmail.com",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/opensig/opensig-js.git"
+  },
+  "keywords": [
+    "opensig",
+    "digital signatures",
+    "e-signatures",
+    "digital identity",
+    "blockchain"
+  ],
+  "bugs": {
+    "url": "https://github.com/opensig/opensig-js/issues"
+  },
+  "homepage": "https://github.com/opensig/opensig-js#readme",
   "devDependencies": {
     "rollup": "^3.20.7"
   }
