@@ -1,0 +1,6 @@
+node_modules
+*_metadata.json
+build-info
+.deps
+remixd.sh
+scratchpad

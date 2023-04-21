@@ -1,0 +1,15 @@
+{
+  "name": "opensig-js",
+  "version": "0.1.0",
+  "description": "OpenSig javascript library for publishing digital signatures to EVM-based blockchains.",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "rollup -c rollup.config.js"
+  },
+  "author": "dnpotter1@gmail.com",
+  "license": "MIT",
+  "devDependencies": {
+    "rollup": "^3.20.7"
+  }
+}
