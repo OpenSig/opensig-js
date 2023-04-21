@@ -69,15 +69,18 @@ export class Document {
    * Signs the document with the next available signature hash and the given data. The document
    * must have been verified using the `verify` function before signing.
    * 
-   * @param {*} data 
+   * @param {Object} data (optional) containing
+   *    type: 'string'|'hex'
+   *    encrypted: boolean. If true, opensig will encrypt the data using the document hash as the encryption key
+   *    content: string containing either the text or hex content
    * @returns {Object} containing 
    *    txHash: blockchain transaction hash
    *    signatory: blockchain address of the signer
    *    signature: the signature hash published
-   *    confirmationInformer: Promise that resolves when the transaction has been confirmed
+   *    confirmationInformer: Promise to resolve with the receipt when the transaction has been confirmed
    * @throws BlockchainNotSupportedError
    */
-  async sign(data) {
+  async sign(data = {}) {
     if (this.hashes === undefined) throw new Error("Must verify before signing");
     return this.hashes.next()
       .then(signature => { 
@@ -257,7 +260,7 @@ async function _encodeData(data, encryptionKey) {
 
     case 'hex':
       type += SIG_DATA_TYPE_BYTES;
-      encData = data.slice(0,2) === '0x' ? data.slice(2) : data;
+      encData = data.content.slice(0,2) === '0x' ? data.content.slice(2) : data.content;
       break;
 
     default:
