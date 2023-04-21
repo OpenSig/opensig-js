@@ -2,31 +2,13 @@
 // Distributed under the MIT software license, see the accompanying
 // file LICENSE or http://www.opensource.org/licenses/mit-license.php.
 
-/**
- * blockchains.js
- * 
- * Configuration for blockchains supported by the core OpenSig library.
- * 
- * Use getBlockchain() to obtain the blockchain configuration object for the chain currently
- * selected in Metamask, or use getBlockchain(<chainId>) for a specific chain.
- * 
- * A blockchain configuration object is defined as:
- *   {
- *     chainId: <numeric chain id>
- *     name: <string name of the chain>
- *     Provider: {
- *       publishSignature(hash, data) <publishes a signature hash and data to the blockchain>
- *       querySignatures() <queries the blockchain for a list of signature hashes>
- *     }
- *   }
- * 
- * Requires Metamask.
- */
-
 
 //
 // Providers - supports external HTTP RPC providers and Metamask.
 //
+
+const defaultABI = [ { anonymous: false, inputs: [ { indexed: false, internalType: "uint256", name: "time", type: "uint256" }, { indexed: true, internalType: "address", name: "signer", type: "address" }, { indexed: true, internalType: "bytes32", name: "signature", type: "bytes32" }, { indexed: false, internalType: "bytes", name: "data", type: "bytes" } ], name: "Signature", type: "event" }, { inputs: [ { internalType: "bytes32", name: "sig_", type: "bytes32" } ], name: "isRegistered", outputs: [ { internalType: "bool", name: "", type: "bool" } ], stateMutability: "view", type: "function" }, { inputs: [ { internalType: "bytes32", name: "sig_", type: "bytes32" }, { internalType: "bytes", name: "data_", type: "bytes" } ], name: "registerSignature", outputs: [], stateMutability: "nonpayable", type: "function" } ];
+
 
 /**
  * Abstract base class for all provider types.  A Provider allows signatures to be published to
@@ -43,13 +25,14 @@ export class BlockchainProvider {
     this.chainId = params.chainId;
     this.contract = params.contract;
     this.fromBlock = params.creationBlock;
-    this.abi = params.abi;
+    this.abi = params.abi || defaultABI;
     this.blockTime = params.blockTime;
     this.networkLatency = params.networkLatency;
   }
 
   /**
-   * Publishes a signature and optional annotation data to the blockchain.
+   * Publishes a signature and optional annotation data to the blockchain.  Uses Metamask to
+   * sign and publish transactions.  Override this method to use an alternative wallet.
    * 
    * @param {string} signature 32-byte signature hash as a hex string with '0x' prefix.
    * @param {Uint8Array} data to annotate the signature
@@ -64,25 +47,7 @@ export class BlockchainProvider {
    *   } 
    */
   publishSignature(signature, data) {
-    const web3 = _getBrowserWeb3();
-    const signatory = window.ethereum.selectedAddress;
-    const contract = new web3.eth.Contract(this.abi, this.contract);
-    const transactionParameters = {
-      to: this.contract,
-      from: signatory,
-      value: 0,
-      data: contract.methods.registerSignature(signature, data).encodeABI()
-    };
-    return window.ethereum.request({ method: 'eth_sendTransaction', params: [transactionParameters] })
-      .then(txHash => { 
-        return { 
-          txHash: txHash, 
-          signatory: signatory,
-          signature: signature,
-          data: data,
-          confirmationInformer: _awaitTransactionConfirmation(txHash, web3, this.blockTime, this.networkLatency) 
-        };
-      });
+    throw new Error('This is an abstract function and must be overridden')
   }
 
   /**
@@ -116,13 +81,35 @@ export class MetamaskProvider extends BlockchainProvider{
     });
   }
   
+  publishSignature(signature, data) {
+    const web3 = _getBrowserWeb3();
+    const signatory = window.ethereum.selectedAddress;
+    const contract = new web3.eth.Contract(this.abi, this.contract);
+    const transactionParameters = {
+      to: this.contract,
+      from: signatory,
+      value: 0,
+      data: contract.methods.registerSignature(signature, data).encodeABI()
+    };
+    return window.ethereum.request({ method: 'eth_sendTransaction', params: [transactionParameters] })
+      .then(txHash => { 
+        return { 
+          txHash: txHash, 
+          signatory: signatory,
+          signature: signature,
+          data: data,
+          confirmationInformer: _awaitTransactionConfirmation(txHash, web3, this.blockTime, this.networkLatency) 
+        };
+      });
+  }
+
 }
 
 
 /**
  * Provider that uses an external HTTP RPC to query signatures from the blockchain.
  */
-export class HTTPProvider extends BlockchainProvider {
+export class HTTPProvider extends MetamaskProvider {
 
   constructor(params) {
     super(params);
@@ -143,7 +130,7 @@ export class HTTPProvider extends BlockchainProvider {
 /**
  * Provider that uses an Ankr HTTP RPC endpoint to query signatures from the blockchain.
  */
-export class AnkrProvider extends BlockchainProvider {
+export class AnkrProvider extends MetamaskProvider {
 
   constructor(params) {
     super(params);
