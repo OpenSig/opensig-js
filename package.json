@@ -7,7 +7,7 @@
   "scripts": {
     "build": "rollup -c rollup.config.js"
   },
-  "author": "dnpotter1@gmail.com",
+  "author": "Bubble Protocol",
   "license": "MIT",
   "repository": {
     "type": "git",
