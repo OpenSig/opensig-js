@@ -13,8 +13,6 @@ npm install opensig-js
 ```
 import * as opensig from 'opensig-js';
 
-import registryContract from '../contracts/artifacts/OpensigRegistry.json';
-
 
 // Construct a blockchain provider (see opensig.providers)
 
