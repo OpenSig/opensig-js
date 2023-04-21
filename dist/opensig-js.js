@@ -5,31 +5,13 @@ var opensig = (function (exports) {
   // Distributed under the MIT software license, see the accompanying
   // file LICENSE or http://www.opensource.org/licenses/mit-license.php.
 
-  /**
-   * blockchains.js
-   * 
-   * Configuration for blockchains supported by the core OpenSig library.
-   * 
-   * Use getBlockchain() to obtain the blockchain configuration object for the chain currently
-   * selected in Metamask, or use getBlockchain(<chainId>) for a specific chain.
-   * 
-   * A blockchain configuration object is defined as:
-   *   {
-   *     chainId: <numeric chain id>
-   *     name: <string name of the chain>
-   *     Provider: {
-   *       publishSignature(hash, data) <publishes a signature hash and data to the blockchain>
-   *       querySignatures() <queries the blockchain for a list of signature hashes>
-   *     }
-   *   }
-   * 
-   * Requires Metamask.
-   */
-
 
   //
   // Providers - supports external HTTP RPC providers and Metamask.
   //
+
+  const defaultABI = [ { anonymous: false, inputs: [ { indexed: false, internalType: "uint256", name: "time", type: "uint256" }, { indexed: true, internalType: "address", name: "signer", type: "address" }, { indexed: true, internalType: "bytes32", name: "signature", type: "bytes32" }, { indexed: false, internalType: "bytes", name: "data", type: "bytes" } ], name: "Signature", type: "event" }, { inputs: [ { internalType: "bytes32", name: "sig_", type: "bytes32" } ], name: "isRegistered", outputs: [ { internalType: "bool", name: "", type: "bool" } ], stateMutability: "view", type: "function" }, { inputs: [ { internalType: "bytes32", name: "sig_", type: "bytes32" }, { internalType: "bytes", name: "data_", type: "bytes" } ], name: "registerSignature", outputs: [], stateMutability: "nonpayable", type: "function" } ];
+
 
   /**
    * Abstract base class for all provider types.  A Provider allows signatures to be published to
@@ -46,13 +28,14 @@ var opensig = (function (exports) {
       this.chainId = params.chainId;
       this.contract = params.contract;
       this.fromBlock = params.creationBlock;
-      this.abi = params.abi;
+      this.abi = params.abi || defaultABI;
       this.blockTime = params.blockTime;
       this.networkLatency = params.networkLatency;
     }
 
     /**
-     * Publishes a signature and optional annotation data to the blockchain.
+     * Publishes a signature and optional annotation data to the blockchain.  Uses Metamask to
+     * sign and publish transactions.  Override this method to use an alternative wallet.
      * 
      * @param {string} signature 32-byte signature hash as a hex string with '0x' prefix.
      * @param {Uint8Array} data to annotate the signature
@@ -67,25 +50,7 @@ var opensig = (function (exports) {
      *   } 
      */
     publishSignature(signature, data) {
-      const web3 = _getBrowserWeb3();
-      const signatory = window.ethereum.selectedAddress;
-      const contract = new web3.eth.Contract(this.abi, this.contract);
-      const transactionParameters = {
-        to: this.contract,
-        from: signatory,
-        value: 0,
-        data: contract.methods.registerSignature(signature, data).encodeABI()
-      };
-      return window.ethereum.request({ method: 'eth_sendTransaction', params: [transactionParameters] })
-        .then(txHash => { 
-          return { 
-            txHash: txHash, 
-            signatory: signatory,
-            signature: signature,
-            data: data,
-            confirmationInformer: _awaitTransactionConfirmation(txHash, web3, this.blockTime, this.networkLatency) 
-          };
-        });
+      throw new Error('This is an abstract function and must be overridden')
     }
 
     /**
@@ -119,13 +84,35 @@ var opensig = (function (exports) {
       });
     }
     
+    publishSignature(signature, data) {
+      const web3 = _getBrowserWeb3();
+      const signatory = window.ethereum.selectedAddress;
+      const contract = new web3.eth.Contract(this.abi, this.contract);
+      const transactionParameters = {
+        to: this.contract,
+        from: signatory,
+        value: 0,
+        data: contract.methods.registerSignature(signature, data).encodeABI()
+      };
+      return window.ethereum.request({ method: 'eth_sendTransaction', params: [transactionParameters] })
+        .then(txHash => { 
+          return { 
+            txHash: txHash, 
+            signatory: signatory,
+            signature: signature,
+            data: data,
+            confirmationInformer: _awaitTransactionConfirmation(txHash, web3, this.blockTime, this.networkLatency) 
+          };
+        });
+    }
+
   }
 
 
   /**
    * Provider that uses an external HTTP RPC to query signatures from the blockchain.
    */
-  class HTTPProvider extends BlockchainProvider {
+  class HTTPProvider extends MetamaskProvider {
 
     constructor(params) {
       super(params);
@@ -146,7 +133,7 @@ var opensig = (function (exports) {
   /**
    * Provider that uses an Ankr HTTP RPC endpoint to query signatures from the blockchain.
    */
-  class AnkrProvider extends BlockchainProvider {
+  class AnkrProvider extends MetamaskProvider {
 
     constructor(params) {
       super(params);
@@ -469,15 +456,18 @@ var opensig = (function (exports) {
      * Signs the document with the next available signature hash and the given data. The document
      * must have been verified using the `verify` function before signing.
      * 
-     * @param {*} data 
+     * @param {Object} data (optional) containing
+     *    type: 'string'|'hex'
+     *    encrypted: boolean. If true, opensig will encrypt the data using the document hash as the encryption key
+     *    content: string containing either the text or hex content
      * @returns {Object} containing 
      *    txHash: blockchain transaction hash
      *    signatory: blockchain address of the signer
      *    signature: the signature hash published
-     *    confirmationInformer: Promise that resolves when the transaction has been confirmed
+     *    confirmationInformer: Promise to resolve with the receipt when the transaction has been confirmed
      * @throws BlockchainNotSupportedError
      */
-    async sign(data) {
+    async sign(data = {}) {
       if (this.hashes === undefined) throw new Error("Must verify before signing");
       return this.hashes.next()
         .then(signature => { 
@@ -657,7 +647,7 @@ var opensig = (function (exports) {
 
       case 'hex':
         type += SIG_DATA_TYPE_BYTES;
-        encData = data.slice(0,2) === '0x' ? data.slice(2) : data;
+        encData = data.content.slice(0,2) === '0x' ? data.content.slice(2) : data.content;
         break;
 
       default:
