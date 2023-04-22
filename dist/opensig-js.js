@@ -573,8 +573,7 @@ var opensig = (function (exports) {
    */
   async function _discoverSignatures(network, documentHash, encryptionKey) {
     const signatureEvents = [];
-    const chainSpecificDocumentHash = await hash(concatBuffers(Uint8Array.from(''+network.chainId), documentHash));
-    const hashes = new HashIterator(chainSpecificDocumentHash);
+    const hashes = new HashIterator(documentHash, network.chainId);
     let lastSignatureIndex = -1;
 
     async function _discoverNext(n) {
@@ -712,24 +711,25 @@ var opensig = (function (exports) {
   /**
    * HashIterator class
    * 
-   * The primary way to calculate the sequence of signatures for a document hash.  Generates the 
-   * deterministic sequence of chain-specific signature hashes for a document hash in accordance with 
-   * OpenSig standard v0.1.  Use `next` to retrieve the next `n` hashes.  The iterator will only 
-   * generate hashes when the `next` function is called.
+   * The core of OpenSig.  Generates the deterministic sequence of chain-specific signature hashes
+   * from a document hash in accordance with OpenSig standard v0.1.  Use `next` to retrieve the next 
+   * `n` hashes.  The iterator will only generate hashes when the `next` function is called.
    */
   class HashIterator {
 
     hashes = [];
     hashPtr = -1;
 
-    constructor(documentHash) {
+    constructor(documentHash, chainId) {
       this.documentHash = documentHash;
+      this.chainId = chainId;
     }
 
     async next(n=1) {
-      if (this.hashes.length === 0) this.hashes.push(await hash(this.documentHash));
+      if (!this.chainSpecificHash) this.chainSpecificHash = await hash(concatBuffers(Uint8Array.from(''+this.chainId), this.documentHash));
+      if (this.hashes.length === 0) this.hashes.push(await hash(this.chainSpecificHash));
       for (let i=this.hashes.length; i<=this.hashPtr+n; i++) {
-        this.hashes.push(await hash(concatBuffers(this.documentHash, this.hashes[i-1])));
+        this.hashes.push(await hash(concatBuffers(this.chainSpecificHash, this.hashes[i-1])));
       }
       return this.hashes.slice(this.hashPtr+1, (this.hashPtr+=n)+1);
     }
