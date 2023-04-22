@@ -20,7 +20,7 @@ npm install opensig-js
 
 ### Browser
 
-```
+```javascript
 // Construct a blockchain provider (see opensig.providers)
 
 const provider = new window.opensig.providers.MetamaskProvider({
@@ -63,7 +63,7 @@ result.confirmationInformer
 
 ### Node.js
 
-```
+```javascript
 import * as opensig from 'opensig-js';
 
 import MetaMaskSDK from '@metamask/sdk';
@@ -93,7 +93,7 @@ const provider = new opensig.providers.MetamaskProvider({
 
 The `Document` class is an alternative to the `File` class.  It takes a pre-determined document hash instead of a file.
 
-```
+```javascript
 const myDocHash = ...
 
 const myDoc = new opensig.Document(provider, myDocHash);
