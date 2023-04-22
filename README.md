@@ -119,7 +119,7 @@ OpenSig is bundled with 3 types of provider accessed via `opensig.providers`.  A
 
 ### Parameters
 
-A BlockchainProvider takes the following parameters:
+A `BlockchainProvider` takes the following parameters:
 
   - `chainId` - blockchain's chain id
   - `name` - label
@@ -128,17 +128,17 @@ A BlockchainProvider takes the following parameters:
   - `creationBlock` - the registry contract's creation block number (minimises search window when querying for signatures)
 
 
-MetamaskProvider takes in addition:
+`MetamaskProvider` extends `BlockchainProvider` and takes in addition:
 
   - `ethereum` - optional Metamask ethereum provider. Defaults to `window.ethereum`
 
 
-HTTPProvider takes in addition:
+`HTTPProvider` extends `MetamaskProvider` and takes in addition:
 
   - `url` - url of the http service, e.g. Infura
 
 
-AnkrProvider takes in addition:
+`AnkrProvider` extends `MetamaskProvider` and takes in addition:
 
   - `endpoint` - url of the Ankr network endpoint, e.g. `https://rpc.ankr.com/multichain`
 
