@@ -75,8 +75,14 @@ var opensig = (function (exports) {
    */
   class MetamaskProvider extends BlockchainProvider{
 
+    constructor(params) {
+      super(params);
+      this.ethereum = params.ethereum || window.ethereum;
+      if (!ethereum) throw new Error('Metamask is not installed');
+    }
+
     querySignatures(ids) {
-      const web3 = _getBrowserWeb3();
+      const web3 = new Web3(this.ethereum);
       return web3.eth.getPastLogs({
         address: this.contract,
         fromBlock: this.fromBlock,
@@ -85,8 +91,8 @@ var opensig = (function (exports) {
     }
     
     publishSignature(signature, data) {
-      const web3 = _getBrowserWeb3();
-      const signatory = window.ethereum.selectedAddress;
+      const web3 = new Web3(this.ethereum);
+      const signatory = this.ethereum.selectedAddress;
       const contract = new web3.eth.Contract(this.abi, this.contract);
       const transactionParameters = {
         to: this.contract,
@@ -94,7 +100,7 @@ var opensig = (function (exports) {
         value: 0,
         data: contract.methods.registerSignature(signature, data).encodeABI()
       };
-      return window.ethereum.request({ method: 'eth_sendTransaction', params: [transactionParameters] })
+      return this.ethereum.request({ method: 'eth_sendTransaction', params: [transactionParameters] })
         .then(txHash => { 
           return { 
             txHash: txHash, 
@@ -186,11 +192,6 @@ var opensig = (function (exports) {
   //
   // Blockchain functions
   //
-
-  function _getBrowserWeb3() {
-    if (typeof window.ethereum === 'undefined') throw new Error('Metamask is not installed');
-    return new Web3(window.ethereum);
-  }
 
 
   /**

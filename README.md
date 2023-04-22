@@ -4,19 +4,26 @@ Javascript library for digitally signing and verifying files on EVM-based blockc
 
 ## Installation
 
+### Browser
+
+```
+<script src="https://cdn.jsdelivr.net/gh/opensig/opensig-js/dist/opensig-js.js"></script>
+```
+
+### Node.js
+
 ```
 npm install opensig-js
 ```
 
 ## Usage
 
+### Browser
+
 ```
-import * as opensig from 'opensig-js';
-
-
 // Construct a blockchain provider (see opensig.providers)
 
-const provider = new opensig.providers.MetamaskProvider({
+const provider = new window.opensig.providers.MetamaskProvider({
   chainId: 1,
   name: "Ethereum",
   contract: "0x73eF7A3643aCbC3D616Bd5f7Ee5153Aa5f14DB30", 
@@ -27,7 +34,7 @@ const provider = new opensig.providers.MetamaskProvider({
 
 // Construct an OpenSig Document object
 
-const myDoc = new opensig.File(provider, new File('./myfile.txt'));
+const myDoc = new window.opensig.File(provider, new File('./myfile.txt'));
 
 
 // Verify signatures on the blockchain
@@ -54,7 +61,35 @@ result.confirmationInformer
   .catch(console.error)
 ```
 
-### Document Class
+### Node.js
+
+```
+import * as opensig from 'opensig-js';
+
+import MetaMaskSDK from '@metamask/sdk';
+
+
+const MMSDK = new MetaMaskSDK(options);
+
+const ethereum = MMSDK.getProvider();
+
+
+// Construct a blockchain provider (see opensig.providers)
+
+const provider = new opensig.providers.MetamaskProvider({
+  chainId: 1,
+  name: "Ethereum",
+  contract: "0x73eF7A3643aCbC3D616Bd5f7Ee5153Aa5f14DB30", 
+  blockTime: 12000,
+  creationBlock: 16764681
+  ethereum: ethereum,
+});
+
+...
+
+```
+
+## Document Class
 
 The `Document` class is an alternative to the `File` class.  It takes a pre-determined document hash instead of a file.
 
@@ -68,7 +103,7 @@ const signatures = myDoc.verify();
 
 ```
 
-### Blockchain Providers
+## Blockchain Providers
 
 Blockchain providers publish sign transactions to the blockchain and query the blockchain for signatures using whatever transport protocol is appropriate.
 
@@ -81,4 +116,29 @@ OpenSig is bundled with 3 types of provider accessed via `opensig.providers`.  A
 **HTTPProvider** - Uses a web3 http provider to query the blockchain for signatures.  Uses the local Metamask wallet to sign and publish transactions.
 
 **AnkrProvider** - Uses the Ankr network to query the blockchain for signatures.  Uses the local Metamask wallet to sign and publish transactions.
+
+### Parameters
+
+A BlockchainProvider takes the following parameters:
+
+  - `chainId` - blockchain's chain id
+  - `name` - label
+  - `contract` - address of that blockchain's Registry Contract (see https://opensig.net/about#contracts) 
+  - `blockTime` - the network block time in ms
+  - `creationBlock` - the registry contract's creation block number (minimises search window when querying for signatures)
+
+
+MetamaskProvider takes in addition:
+
+  - `ethereum` - optional Metamask ethereum provider. Defaults to `window.ethereum`
+
+
+HTTPProvider takes in addition:
+
+  - `url` - url of the http service, e.g. Infura
+
+
+AnkrProvider takes in addition:
+
+  - `endpoint` - url of the Ankr network endpoint, e.g. `https://rpc.ankr.com/multichain`
 
