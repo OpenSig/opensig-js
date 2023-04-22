@@ -39,7 +39,7 @@ const myDoc = new window.opensig.File(provider, new File('./myfile.txt'));
 
 // Verify signatures on the blockchain
 
-const signatures = myDoc.verify();
+const signatures = await myDoc.verify();
 
 signatures.forEach(sig => console.log(sig.time, sig.signatory, sig.data));
 
@@ -52,13 +52,13 @@ const signData = {
   content: 'some data'
 };
 
-const result = myDoc.sign(signData);
+const result = await myDoc.sign(signData);
 
 console.log(result.txHash, result.signatory, result.signature);
 
-result.confirmationInformer
-  .then(receipt => console.log('signature published successfully', receipt))
-  .catch(console.error)
+const receipt = await result.confirmationInformer;
+
+console.log('signature published successfully', receipt));
 ```
 
 ### Node.js
@@ -98,7 +98,7 @@ const myDocHash = ...
 
 const myDoc = new opensig.Document(provider, myDocHash);
 
-const signatures = myDoc.verify();
+const signatures = await myDoc.verify();
 ...
 
 ```
