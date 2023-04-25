@@ -1,6 +1,8 @@
 # opensig-js
 
-Javascript library for digitally signing and verifying files on EVM-based blockchains using the OpenSig standard.  See https://opensig.net/about.
+Javascript e-signature library for digitally signing and verifying files on EVM-based blockchains using the OpenSig standard.  See https://opensig.net/about.  
+
+Also supports public and private notarisation to the blockchain.
 
 ## Installation
 
