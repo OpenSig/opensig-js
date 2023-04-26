@@ -34,7 +34,8 @@ const provider = new window.opensig.providers.MetamaskProvider({
 });
 
 
-// Construct an OpenSig Document object
+// Construct an OpenSig Document object from a File 
+// (or construct one from a hash - see Document Class below)
 
 const myDoc = new window.opensig.File(provider, new File('./myfile.txt'));
 
@@ -73,7 +74,7 @@ import MetaMaskSDK from '@metamask/sdk';
 
 const MMSDK = new MetaMaskSDK(options);
 
-const ethereum = MMSDK.getProvider();
+const ethereumProvider = MMSDK.getProvider();
 
 
 // Construct a blockchain provider (see opensig.providers)
@@ -83,8 +84,8 @@ const provider = new opensig.providers.MetamaskProvider({
   name: "Ethereum",
   contract: "0x73eF7A3643aCbC3D616Bd5f7Ee5153Aa5f14DB30", 
   blockTime: 12000,
-  creationBlock: 16764681
-  ethereum: ethereum,
+  creationBlock: 16764681,
+  ethereum: ethereumProvider,
 });
 
 ...
