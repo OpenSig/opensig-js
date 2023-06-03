@@ -279,6 +279,9 @@ var opensig = (function (exports) {
   }
 
   // Copyright (c) 2023 Bubble Protocol
+  // Distributed under the MIT software license, see the accompanying
+  // file LICENSE or http://www.opensource.org/licenses/mit-license.php.
+
 
 
   //
@@ -393,6 +396,9 @@ var opensig = (function (exports) {
   }
 
   // Copyright (c) 2023 Bubble Protocol
+  // Distributed under the MIT software license, see the accompanying
+  // file LICENSE or http://www.opensource.org/licenses/mit-license.php.
+
 
   /**
    * opensig.js
@@ -734,7 +740,7 @@ var opensig = (function (exports) {
       return this.hashes.slice(this.hashPtr+1, (this.hashPtr+=n)+1);
     }
 
-    current() { return this.hashPtr >= 0 ? this.hashes(this.hashPtr) : undefined }
+    current() { return this.hashPtr >= 0 ? this.hashes[this.hashPtr] : undefined }
 
     currentIndex() { return this.hashPtr }
 
@@ -744,7 +750,7 @@ var opensig = (function (exports) {
 
     reset(n=0) { this.hashPtr = n; }
 
-    size() { return this.hashPtr }
+    size() { return this.hashPtr+1 }
 
   }
 
