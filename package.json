@@ -1,6 +1,6 @@
 {
   "name": "opensig-js",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "OpenSig javascript library for publishing digital signatures to EVM-based blockchains.",
   "main": "src/index.js",
   "type": "module",
