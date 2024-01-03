@@ -234,6 +234,7 @@ async function _decodeSignatureEvent(event, encryptionKey) {
     event.topics.slice(1)
   )
   return {
+    event,
     time: decodedEvent.time,
     signatory: decodedEvent.signer,
     signature: decodedEvent.signature,

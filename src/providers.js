@@ -21,6 +21,7 @@ const defaultABI = [ { anonymous: false, inputs: [ { indexed: false, internalTyp
 export class BlockchainProvider {
 
   constructor(params) {
+    this.params = params;
     this.name = params.name;
     this.chainId = params.chainId;
     this.contract = params.contract;
