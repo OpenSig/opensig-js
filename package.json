@@ -1,11 +1,12 @@
 {
   "name": "opensig-js",
-  "version": "0.1.4",
+  "version": "0.1.6",
   "description": "OpenSig javascript library for publishing digital signatures to EVM-based blockchains.",
   "main": "src/index.js",
   "type": "module",
   "scripts": {
-    "build": "rollup -c rollup.config.js"
+    "build": "rollup -c rollup.config.js",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
   },
   "author": "Bubble Protocol",
   "license": "MIT",
@@ -25,6 +26,10 @@
   },
   "homepage": "https://github.com/opensig/opensig-js#readme",
   "devDependencies": {
+    "jest": "^29.7.0",
     "rollup": "^3.20.7"
+  },
+  "dependencies": {
+    "ethers": "^6.14.1"
   }
 }

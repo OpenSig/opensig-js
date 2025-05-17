@@ -2,38 +2,41 @@
 // Distributed under the MIT software license, see the accompanying
 // file LICENSE or http://www.opensource.org/licenses/mit-license.php.
 
-
 //
 // Providers - supports external HTTP RPC providers and Metamask.
 //
+
+import { ethers } from "ethers";
 
 const defaultABI = [ { anonymous: false, inputs: [ { indexed: false, internalType: "uint256", name: "time", type: "uint256" }, { indexed: true, internalType: "address", name: "signer", type: "address" }, { indexed: true, internalType: "bytes32", name: "signature", type: "bytes32" }, { indexed: false, internalType: "bytes", name: "data", type: "bytes" } ], name: "Signature", type: "event" }, { inputs: [ { internalType: "bytes32", name: "sig_", type: "bytes32" } ], name: "isRegistered", outputs: [ { internalType: "bool", name: "", type: "bool" } ], stateMutability: "view", type: "function" }, { inputs: [ { internalType: "bytes32", name: "sig_", type: "bytes32" }, { internalType: "bytes", name: "data_", type: "bytes" } ], name: "registerSignature", outputs: [], stateMutability: "nonpayable", type: "function" } ];
 
 
 /**
- * Abstract base class for all provider types.  A Provider allows signatures to be published to
- * and queried from a blockchain using whatever RPC service it needs.
- * 
- * Metamask is used to sign and publish signature transactions for all blockchains.  Child classes
- * must implement querySignatures to retrieve signature events from the blockchain using their
- * preferred service.
+ * Abstract base class for all provider types.
  */
 export class BlockchainProvider {
 
+  /**
+   * @param {string} params.name - Name of the provider
+   * @param {string} params.chainId - Chain ID of the blockchain
+   * @param {string} params.contract - Address of the OpenSig Registry contract on this chain
+   * @param {number} params.blockTime - Average block time for this chain in milliseconds
+   * @param {number} params.creationBlock? - Block number of the registry contract creation
+   * @param {number} params.networkLatency? - Average latency for this network to distribute a published transaction
+   */
   constructor(params) {
     this.params = params;
     this.name = params.name;
     this.chainId = params.chainId;
     this.contract = params.contract;
+    this.blockTime = params.blockTime || 12000;
     this.fromBlock = params.creationBlock;
-    this.abi = params.abi || defaultABI;
-    this.blockTime = params.blockTime;
+    this.abi = defaultABI;
     this.networkLatency = params.networkLatency;
   }
 
   /**
-   * Publishes a signature and optional annotation data to the blockchain.  Uses Metamask to
-   * sign and publish transactions.  Override this method to use an alternative wallet.
+   * Publishes a signature and optional annotation data to the blockchain.
    * 
    * @param {string} signature 32-byte signature hash as a hex string with '0x' prefix.
    * @param {Uint8Array} data to annotate the signature
@@ -58,8 +61,6 @@ export class BlockchainProvider {
    * @param {[string]} ids array of signature hashes, each a 32-byte hex-string prefixed by '0x'
    * @returns Promise to resolve an array of signature event objects as defined by eth_getLogs.  
    * Rejects if the blockchain cannot be reached.
-   * 
-   * @dev Override this function to use whatever service is needed for your blockchain.
    */
   querySignatures(ids) {
     throw new Error('This is an abstract function and must be overridden')
@@ -69,121 +70,103 @@ export class BlockchainProvider {
 
 
 /**
- * Provider that uses Metamask to query signatures from the blockchain.
+ * Provider that uses ethers.js to publish and query signatures.
+ * 
+ * @param {Object} params - @see BlockchainProvider
+ * @param {ethers.Provider} params.provider? - ethers.js provider to use for transactions and logs
+ * @param {ethers.Provider} params.transactionProvider? - ethers.js provider to use for transactions (required if provider not given)
+ * @param {ethers.Provider} params.logProvider? - ethers.js provider to use for logs (required if provider not given)
  */
-export class MetamaskProvider extends BlockchainProvider{
+export class EthersProvider extends BlockchainProvider {
 
   constructor(params) {
     super(params);
-    this.ethereum = params.ethereum || window.ethereum;
-    if (!ethereum) throw new Error('Metamask is not installed');
+    this.transactionProvider = params.transactionProvider || params.provider;
+    this.logProvider = params.logProvider || params.provider;
   }
 
-  querySignatures(ids) {
-    const web3 = new Web3(this.ethereum);
-    return web3.eth.getPastLogs({
+  async querySignatures(ids) {
+    const filter = {
       address: this.contract,
       fromBlock: this.fromBlock,
-      topics: [null, null, ids]
-    });
+      topics: [null, null, ids],
+    };
+    return this.logProvider.send('eth_getLogs', [filter]);
   }
   
-  publishSignature(signature, data) {
-    const web3 = new Web3(this.ethereum);
-    const signatory = this.ethereum.selectedAddress;
-    const contract = new web3.eth.Contract(this.abi, this.contract);
-    const transactionParameters = {
-      to: this.contract,
-      from: signatory,
-      value: 0,
-      data: contract.methods.registerSignature(signature, data).encodeABI()
+  async publishSignature(signature, data) {
+    const signer = await this.transactionProvider.getSigner();
+    const signatory = await signer.getAddress();
+    const contract = new ethers.Contract(this.contract, this.abi, signer);
+    const tx = await contract.registerSignature(signature, data);
+    const receiptPromise = _awaitTransactionConfirmation(tx.hash, this.transactionProvider, this.blockTime, this.networkLatency);
+    return {
+      txHash: tx.hash,
+      signatory,
+      signature,
+      data,
+      confirmationInformer: receiptPromise
     };
-    return this.ethereum.request({ method: 'eth_sendTransaction', params: [transactionParameters] })
-      .then(txHash => { 
-        return { 
-          txHash: txHash, 
-          signatory: signatory,
-          signature: signature,
-          data: data,
-          confirmationInformer: _awaitTransactionConfirmation(txHash, web3, this.blockTime, this.networkLatency) 
-        };
-      });
   }
 
 }
 
 
 /**
+ * @deprecated Use `EthersProvider` instead and pass a `BrowserProvider`.
+ * 
+ * Provider that uses a browser-installed wallet to publish and query signatures from the 
+ * blockchain.
+ */
+export class MetamaskProvider extends EthersProvider{
+
+  constructor(params) {
+    const ethereum = params.ethereum || window.ethereum;
+    if (!ethereum) throw new Error('A browser wallet, such as Metamask, must be installed');
+    const provider = new ethers.BrowserProvider(ethereum);
+    if (!provider) throw new Error('A browser wallet, such as Metamask, must be installed');
+    super({...params, provider });
+  }
+
+}
+
+
+/**
+ * @deprecated Use `EthersProvider` instead and pass a `JsonRpcProvider`.
+ * 
  * Provider that uses an external HTTP RPC to query signatures from the blockchain.
  */
 export class HTTPProvider extends MetamaskProvider {
 
   constructor(params) {
-    super(params);
-    this.web3 = new Web3(new Web3.providers.HttpProvider(params.url));
+    const logProvider = new ethers.JsonRpcProvider(params.url);
+    super({...params, logProvider});
   }
 
-  querySignatures(ids) {
-    return this.web3.eth.getPastLogs({
-      address: this.contract,
-      fromBlock: this.fromBlock,
-      topics: [null, null, ids]
-    });
-  }
-  
 }
 
 
 /**
+ * @deprecated Use `EthersProvider` instead and pass an `AnkrProvider`.
+ * 
  * Provider that uses an Ankr HTTP RPC endpoint to query signatures from the blockchain.
  */
 export class AnkrProvider extends MetamaskProvider {
 
   constructor(params) {
-    super(params);
-    this.endpoint = params.endpoint;
-  }
-
-  querySignatures(ids) {
-    return fetch( this.endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        id: 1,
-        jsonrpc: "2.0",
-        method: "ankr_getLogs",
-        params: {
-          blockchain: this.blockchain,
-          address: this.contract,
-          fromBlock: this.fromBlock,
-          topics: [null, null, ids]
-        }
-      })
-    })
-    .then(response => {
-      if (response.status !== 200) throw new Error(response.status+": "+response.statusText);
-      return response.json();
-    })
-    .then(response => {
-      if (response.error && response.error.code) throw new Error(response.error.code+': '+response.error.message);
-      if (!response.result || !response.result.logs) {
-        console.error('Failed to query signatures at '+this.endpoint+': missing result logs in Ankr response');
-        return [];
-      }
-      return response.result.logs;
-    })
+    const logProvider = new ethers.AnkrProvider(params.chainId, params.apiKey);
+    super({...params, logProvider});
   }
 
 }
 
 
 export const providers = {
-  BlockchainProvider: BlockchainProvider,
-  MetamaskProvider: MetamaskProvider,
-  HTTPProvider: HTTPProvider,
-  AnkrProvider: AnkrProvider
+  BlockchainProvider,
+  EthersProvider,
+  MetamaskProvider,
+  HTTPProvider,
+  AnkrProvider
 }
 
 
@@ -200,11 +183,11 @@ export const providers = {
  * If the networkLatency parameter has been given then it includes that delay before resolving.  This is useful when different
  * RPC nodes are used for publishing and querying.  Gives time for the transaction to spread through the network.
  */
-function _awaitTransactionConfirmation(txHash, web3, blockTime, networkLatency=0) {
+function _awaitTransactionConfirmation(txHash, provider, blockTime, networkLatency=0) {
   return new Promise( (resolve, reject) => {
 
     function checkTxReceipt(txHash, interval, resolve, reject) {
-      web3.eth.getTransactionReceipt(txHash)
+      return provider.getTransactionReceipt(txHash)
         .then(receipt => {
           if (receipt === null ) setTimeout(() => { checkTxReceipt(txHash, interval, resolve, reject) }, interval);
           else {
@@ -212,9 +195,10 @@ function _awaitTransactionConfirmation(txHash, web3, blockTime, networkLatency=0
             else reject(receipt);
           }
         })
+        .catch(reject)
     }
     
-    setTimeout(() => { checkTxReceipt(txHash, 1000, resolve, reject) }, blockTime); 
+    setTimeout(() => { checkTxReceipt(txHash, 1000, resolve, reject) }, blockTime || 1000); 
   })
 }
 

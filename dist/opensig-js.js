@@ -1,42 +1,37 @@
-var opensig = (function (exports) {
+var opensig = (function (exports, ethers) {
   'use strict';
 
   // Copyright (c) 2023 Bubble Protocol
-  // Distributed under the MIT software license, see the accompanying
-  // file LICENSE or http://www.opensource.org/licenses/mit-license.php.
-
-
-  //
-  // Providers - supports external HTTP RPC providers and Metamask.
-  //
 
   const defaultABI = [ { anonymous: false, inputs: [ { indexed: false, internalType: "uint256", name: "time", type: "uint256" }, { indexed: true, internalType: "address", name: "signer", type: "address" }, { indexed: true, internalType: "bytes32", name: "signature", type: "bytes32" }, { indexed: false, internalType: "bytes", name: "data", type: "bytes" } ], name: "Signature", type: "event" }, { inputs: [ { internalType: "bytes32", name: "sig_", type: "bytes32" } ], name: "isRegistered", outputs: [ { internalType: "bool", name: "", type: "bool" } ], stateMutability: "view", type: "function" }, { inputs: [ { internalType: "bytes32", name: "sig_", type: "bytes32" }, { internalType: "bytes", name: "data_", type: "bytes" } ], name: "registerSignature", outputs: [], stateMutability: "nonpayable", type: "function" } ];
 
 
   /**
-   * Abstract base class for all provider types.  A Provider allows signatures to be published to
-   * and queried from a blockchain using whatever RPC service it needs.
-   * 
-   * Metamask is used to sign and publish signature transactions for all blockchains.  Child classes
-   * must implement querySignatures to retrieve signature events from the blockchain using their
-   * preferred service.
+   * Abstract base class for all provider types.
    */
   class BlockchainProvider {
 
+    /**
+     * @param {string} params.name - Name of the provider
+     * @param {string} params.chainId - Chain ID of the blockchain
+     * @param {string} params.contract - Address of the OpenSig Registry contract on this chain
+     * @param {number} params.blockTime - Average block time for this chain in milliseconds
+     * @param {number} params.creationBlock? - Block number of the registry contract creation
+     * @param {number} params.networkLatency? - Average latency for this network to distribute a published transaction
+     */
     constructor(params) {
       this.params = params;
       this.name = params.name;
       this.chainId = params.chainId;
       this.contract = params.contract;
+      this.blockTime = params.blockTime || 12000;
       this.fromBlock = params.creationBlock;
-      this.abi = params.abi || defaultABI;
-      this.blockTime = params.blockTime;
+      this.abi = defaultABI;
       this.networkLatency = params.networkLatency;
     }
 
     /**
-     * Publishes a signature and optional annotation data to the blockchain.  Uses Metamask to
-     * sign and publish transactions.  Override this method to use an alternative wallet.
+     * Publishes a signature and optional annotation data to the blockchain.
      * 
      * @param {string} signature 32-byte signature hash as a hex string with '0x' prefix.
      * @param {Uint8Array} data to annotate the signature
@@ -61,8 +56,6 @@ var opensig = (function (exports) {
      * @param {[string]} ids array of signature hashes, each a 32-byte hex-string prefixed by '0x'
      * @returns Promise to resolve an array of signature event objects as defined by eth_getLogs.  
      * Rejects if the blockchain cannot be reached.
-     * 
-     * @dev Override this function to use whatever service is needed for your blockchain.
      */
     querySignatures(ids) {
       throw new Error('This is an abstract function and must be overridden')
@@ -72,121 +65,103 @@ var opensig = (function (exports) {
 
 
   /**
-   * Provider that uses Metamask to query signatures from the blockchain.
+   * Provider that uses ethers.js to publish and query signatures.
+   * 
+   * @param {Object} params - @see BlockchainProvider
+   * @param {ethers.Provider} params.provider? - ethers.js provider to use for transactions and logs
+   * @param {ethers.Provider} params.transactionProvider? - ethers.js provider to use for transactions (required if provider not given)
+   * @param {ethers.Provider} params.logProvider? - ethers.js provider to use for logs (required if provider not given)
    */
-  class MetamaskProvider extends BlockchainProvider{
+  class EthersProvider extends BlockchainProvider {
 
     constructor(params) {
       super(params);
-      this.ethereum = params.ethereum || window.ethereum;
-      if (!ethereum) throw new Error('Metamask is not installed');
+      this.transactionProvider = params.transactionProvider || params.provider;
+      this.logProvider = params.logProvider || params.provider;
     }
 
-    querySignatures(ids) {
-      const web3 = new Web3(this.ethereum);
-      return web3.eth.getPastLogs({
+    async querySignatures(ids) {
+      const filter = {
         address: this.contract,
         fromBlock: this.fromBlock,
-        topics: [null, null, ids]
-      });
+        topics: [null, null, ids],
+      };
+      return this.logProvider.send('eth_getLogs', [filter]);
     }
     
-    publishSignature(signature, data) {
-      const web3 = new Web3(this.ethereum);
-      const signatory = this.ethereum.selectedAddress;
-      const contract = new web3.eth.Contract(this.abi, this.contract);
-      const transactionParameters = {
-        to: this.contract,
-        from: signatory,
-        value: 0,
-        data: contract.methods.registerSignature(signature, data).encodeABI()
+    async publishSignature(signature, data) {
+      const signer = await this.transactionProvider.getSigner();
+      const signatory = await signer.getAddress();
+      const contract = new ethers.ethers.Contract(this.contract, this.abi, signer);
+      const tx = await contract.registerSignature(signature, data);
+      const receiptPromise = _awaitTransactionConfirmation(tx.hash, this.transactionProvider, this.blockTime, this.networkLatency);
+      return {
+        txHash: tx.hash,
+        signatory,
+        signature,
+        data,
+        confirmationInformer: receiptPromise
       };
-      return this.ethereum.request({ method: 'eth_sendTransaction', params: [transactionParameters] })
-        .then(txHash => { 
-          return { 
-            txHash: txHash, 
-            signatory: signatory,
-            signature: signature,
-            data: data,
-            confirmationInformer: _awaitTransactionConfirmation(txHash, web3, this.blockTime, this.networkLatency) 
-          };
-        });
     }
 
   }
 
 
   /**
+   * @deprecated Use `EthersProvider` instead and pass a `BrowserProvider`.
+   * 
+   * Provider that uses a browser-installed wallet to publish and query signatures from the 
+   * blockchain.
+   */
+  class MetamaskProvider extends EthersProvider{
+
+    constructor(params) {
+      const ethereum = params.ethereum || window.ethereum;
+      if (!ethereum) throw new Error('A browser wallet, such as Metamask, must be installed');
+      const provider = new ethers.ethers.BrowserProvider(ethereum);
+      if (!provider) throw new Error('A browser wallet, such as Metamask, must be installed');
+      super({...params, provider });
+    }
+
+  }
+
+
+  /**
+   * @deprecated Use `EthersProvider` instead and pass a `JsonRpcProvider`.
+   * 
    * Provider that uses an external HTTP RPC to query signatures from the blockchain.
    */
   class HTTPProvider extends MetamaskProvider {
 
     constructor(params) {
-      super(params);
-      this.web3 = new Web3(new Web3.providers.HttpProvider(params.url));
+      const logProvider = new ethers.ethers.JsonRpcProvider(params.url);
+      super({...params, logProvider});
     }
 
-    querySignatures(ids) {
-      return this.web3.eth.getPastLogs({
-        address: this.contract,
-        fromBlock: this.fromBlock,
-        topics: [null, null, ids]
-      });
-    }
-    
   }
 
 
   /**
+   * @deprecated Use `EthersProvider` instead and pass an `AnkrProvider`.
+   * 
    * Provider that uses an Ankr HTTP RPC endpoint to query signatures from the blockchain.
    */
   class AnkrProvider extends MetamaskProvider {
 
     constructor(params) {
-      super(params);
-      this.endpoint = params.endpoint;
-    }
-
-    querySignatures(ids) {
-      return fetch( this.endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          id: 1,
-          jsonrpc: "2.0",
-          method: "ankr_getLogs",
-          params: {
-            blockchain: this.blockchain,
-            address: this.contract,
-            fromBlock: this.fromBlock,
-            topics: [null, null, ids]
-          }
-        })
-      })
-      .then(response => {
-        if (response.status !== 200) throw new Error(response.status+": "+response.statusText);
-        return response.json();
-      })
-      .then(response => {
-        if (response.error && response.error.code) throw new Error(response.error.code+': '+response.error.message);
-        if (!response.result || !response.result.logs) {
-          console.error('Failed to query signatures at '+this.endpoint+': missing result logs in Ankr response');
-          return [];
-        }
-        return response.result.logs;
-      })
+      const logProvider = new ethers.ethers.AnkrProvider(params.chainId, params.apiKey);
+      super({...params, logProvider});
     }
 
   }
 
 
   const providers = {
-    BlockchainProvider: BlockchainProvider,
-    MetamaskProvider: MetamaskProvider,
-    HTTPProvider: HTTPProvider,
-    AnkrProvider: AnkrProvider
+    BlockchainProvider,
+    EthersProvider,
+    MetamaskProvider,
+    HTTPProvider,
+    AnkrProvider
   };
 
 
@@ -203,21 +178,22 @@ var opensig = (function (exports) {
    * If the networkLatency parameter has been given then it includes that delay before resolving.  This is useful when different
    * RPC nodes are used for publishing and querying.  Gives time for the transaction to spread through the network.
    */
-  function _awaitTransactionConfirmation(txHash, web3, blockTime, networkLatency=0) {
+  function _awaitTransactionConfirmation(txHash, provider, blockTime, networkLatency=0) {
     return new Promise( (resolve, reject) => {
 
       function checkTxReceipt(txHash, interval, resolve, reject) {
-        web3.eth.getTransactionReceipt(txHash)
+        return provider.getTransactionReceipt(txHash)
           .then(receipt => {
             if (receipt === null ) setTimeout(() => { checkTxReceipt(txHash, interval, resolve, reject); }, interval);
             else {
               if (receipt.status) networkLatency > 0 ? setTimeout(() => resolve(receipt), networkLatency) : resolve(receipt);
               else reject(receipt);
             }
-          });
+          })
+          .catch(reject)
       }
       
-      setTimeout(() => { checkTxReceipt(txHash, 1000, resolve, reject); }, blockTime); 
+      setTimeout(() => { checkTxReceipt(txHash, 1000, resolve, reject); }, blockTime || 1000); 
     })
   }
 
@@ -395,6 +371,10 @@ var opensig = (function (exports) {
 
   // Copyright (c) 2023 Bubble Protocol
 
+  const SignatureEvent = new ethers.ethers.Interface([
+    "event Signature(uint256 time, address indexed signer, bytes32 indexed signature, bytes data)"
+  ]);
+
   /**
    * opensig.js
    * 
@@ -403,6 +383,17 @@ var opensig = (function (exports) {
    * 
    * Requires blockchains.js
    */
+
+
+  /**
+   * Set the log trace level for debugging.  Call setLogTrace() to enable or disable logging.
+   */
+  let logTrace;
+  setLogTrace(false);
+
+  function setLogTrace(traceOn) {
+    logTrace = traceOn ? Function.prototype.bind.call(console.info, console, "[opensig]") : function() {};
+  }
 
 
    /** 
@@ -437,6 +428,7 @@ var opensig = (function (exports) {
     documentHash = undefined;
     encryptionKey = undefined;
     hashes = undefined;
+    signingInProgress = false;
 
     /**
      * Construct an OpenSig Document (an object formed from a document hash that can be signed and 
@@ -470,7 +462,9 @@ var opensig = (function (exports) {
      * @throws BlockchainNotSupportedError
      */
     async sign(data = {}) {
+      if (this.signingInProgress) throw new Error("Signing already in progress");
       if (this.hashes === undefined) throw new Error("Must verify before signing");
+      this.signingInProgress = true;
       return this.hashes.next()
         .then(signature => { 
           return _publishSignature(this.network, signature, data, this.encryptionKey);
@@ -478,6 +472,9 @@ var opensig = (function (exports) {
         .catch(error => {
           this.hashes.reset(this.hashes.currentIndex()-1);
           throw error;
+        })
+        .finally(() => {
+          this.signingInProgress = false;
         });
     }
 
@@ -488,13 +485,14 @@ var opensig = (function (exports) {
      * @throws BlockchainNotSupportedError
      */
     async verify() {
-      console.trace("verifying hash", buf2hex(this.documentHash));
+      logTrace("verifying hash", buf2hex(this.documentHash));
       return _discoverSignatures(this.network, this.documentHash, this.encryptionKey)
         .then(result => {
           this.hashes = result.hashes;
           return result.signatures;
         });
     }
+
 
     _setDocumentHash(hash) {
       if (this.documentHash) throw new Error("document hash already initialised");
@@ -532,7 +530,7 @@ var opensig = (function (exports) {
      */
     async verify() {
       if (this.documentHash !== undefined) return super.verify();
-      console.trace("verifying file", this.file.name);
+      logTrace("verifying file", this.file.name);
       return hashFile(this.file)
         .then(this._setDocumentHash)
         .then(super.verify.bind(this));
@@ -554,7 +552,7 @@ var opensig = (function (exports) {
     const signature = buf2hex(signatureAsArr[0]);  
     return _encodeData(data, encryptionKey)
       .then(encodedData => {
-        console.trace("publishing signature:", signature, "with data", encodedData);
+        logTrace("publishing signature:", signature, "with data", encodedData);
         return network.publishSignature(signature, encodedData);
       });
   }
@@ -580,11 +578,11 @@ var opensig = (function (exports) {
     async function _discoverNext(n) {
       const eSigs = await hashes.next(n);
       const strEsigs = eSigs.map(s => {return buf2hex(s)});
-      console.trace("querying the blockchain for signatures: ", strEsigs);
+      logTrace("querying the blockchain for signatures: ", strEsigs);
 
       return network.querySignatures(strEsigs)
         .then(events => {
-          console.trace("found events:", events);
+          logTrace("found events:", events);
           return Promise.all(events.map(e => _decodeSignatureEvent(e, encryptionKey)));
         })
         .then(parsedEvents => {
@@ -616,18 +614,14 @@ var opensig = (function (exports) {
    * Decrypts and decodes any annotation data.
    */
   async function _decodeSignatureEvent(event, encryptionKey) {
-    const web3 = new Web3(window.ethereum);
-    const decodedEvent = web3.eth.abi.decodeLog(
-      [ { "indexed": false, "internalType": "uint256", "name": "time", "type": "uint256" }, { "indexed": true, "internalType": "address", "name": "signer", "type": "address" }, { "indexed": true, "internalType": "bytes32", "name": "signature", "type": "bytes32" }, { "indexed": false, "internalType": "bytes", "name": "data", "type": "bytes" } ],
-      event.data,
-      event.topics.slice(1)
-    );
+    const log = SignatureEvent.parseLog(event);
+    if (!log) return {time: 0, signatory: '', signature: '', data: {type: 'none'}};
     return {
       event,
-      time: decodedEvent.time,
-      signatory: decodedEvent.signer,
-      signature: decodedEvent.signature,
-      data: await _decodeData(decodedEvent.data, encryptionKey)
+      time: Number(log.args[0]),
+      signatory: log.args[1],
+      signature: log.args[2],
+      data: await _decodeData(log.args[3], encryptionKey)
     }
   }
 
@@ -638,22 +632,27 @@ var opensig = (function (exports) {
 
   async function _encodeData(data, encryptionKey) {
     if (data.content === undefined || data.content === '') return '0x';
+    if (data.encrypted && typeof data.encrypted !== 'boolean') throw new Error("invalid data encrypted flag");
     let type = data.encrypted ? SIG_DATA_ENCRYPTED_FLAG : 0;
     let encData = '';
 
     switch (data.type) {
       case 'string':
+        if (typeof data.content !== 'string') throw new Error("invalid data content");
         type += SIG_DATA_TYPE_STRING;
         encData = unicodeStrToHex(data.content);
         break;
 
       case 'hex':
+        if (typeof data.content !== 'string' || ethers.ethers.isHexString(data.content) === false) {
+          throw new Error("invalid data content");
+        }
         type += SIG_DATA_TYPE_BYTES;
         encData = data.content.slice(0,2) === '0x' ? data.content.slice(2) : data.content;
         break;
 
       default:
-        throw new Error("encodeData: invalid type '"+data.type+"'");
+        throw new Error("invalid data type '"+data.type+"'");
     }
 
     const typeStr = ('00' + type.toString(16)).slice(-2);
@@ -667,7 +666,7 @@ var opensig = (function (exports) {
   }
 
   async function _decodeData(encData, encryptionKey) {
-    if (!encData || encData === '') return {type: 'none'}
+    if (!encData || encData === '' || encData === '0x') return {type: 'none'};
     if (encData.length < 6) return {type: "invalid", content: "data is < 6 bytes"}
     const version = encData.slice(2,4);
     const typeField = parseInt(encData.slice(4,6), 16);
@@ -684,7 +683,7 @@ var opensig = (function (exports) {
         sigData = await encryptionKey.decrypt(sigData);
       }
       catch(error) {
-        console.trace("failed to decrypt signature data:", error.message);
+        logTrace("failed to decrypt signature data:", error.message);
         sigData = '';
       }
     }
@@ -771,4 +770,4 @@ var opensig = (function (exports) {
 
   return exports;
 
-})({});
+})({}, ethers);
