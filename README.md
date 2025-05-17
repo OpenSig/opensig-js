@@ -65,7 +65,7 @@ console.log('signature published successfully', receipt));
 ### HTML
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/opensig-js@0.1.5/dist/opensig-js.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/opensig-js/dist/opensig-js.js"></script>
 <script>
   const opensig = window.opensig;
 
