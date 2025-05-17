@@ -5,6 +5,11 @@
 import { BlockchainProvider } from './providers.js';
 import { EncryptionKey, hash, hashFile } from './crypto.js';
 import { buf2hex, concatBuffers, unicodeStrToHex, unicodeHexToStr } from './utils.js';
+import { ethers } from 'ethers';
+
+const SignatureEvent = new ethers.Interface([
+  "event Signature(uint256 time, address indexed signer, bytes32 indexed signature, bytes data)"
+]);
 
 /**
  * opensig.js
@@ -14,6 +19,17 @@ import { buf2hex, concatBuffers, unicodeStrToHex, unicodeHexToStr } from './util
  * 
  * Requires blockchains.js
  */
+
+
+/**
+ * Set the log trace level for debugging.  Call setLogTrace() to enable or disable logging.
+ */
+let logTrace;
+setLogTrace(false);
+
+export function setLogTrace(traceOn) {
+  logTrace = traceOn ? Function.prototype.bind.call(console.info, console, "[opensig]") : function() {};
+}
 
 
  /** 
@@ -48,6 +64,7 @@ export class Document {
   documentHash = undefined;
   encryptionKey = undefined;
   hashes = undefined;
+  signingInProgress = false;
 
   /**
    * Construct an OpenSig Document (an object formed from a document hash that can be signed and 
@@ -81,7 +98,9 @@ export class Document {
    * @throws BlockchainNotSupportedError
    */
   async sign(data = {}) {
+    if (this.signingInProgress) throw new Error("Signing already in progress");
     if (this.hashes === undefined) throw new Error("Must verify before signing");
+    this.signingInProgress = true;
     return this.hashes.next()
       .then(signature => { 
         return _publishSignature(this.network, signature, data, this.encryptionKey);
@@ -89,6 +108,9 @@ export class Document {
       .catch(error => {
         this.hashes.reset(this.hashes.currentIndex()-1);
         throw error;
+      })
+      .finally(() => {
+        this.signingInProgress = false;
       });
   }
 
@@ -99,13 +121,14 @@ export class Document {
    * @throws BlockchainNotSupportedError
    */
   async verify() {
-    console.trace("verifying hash", buf2hex(this.documentHash));
+    logTrace("verifying hash", buf2hex(this.documentHash));
     return _discoverSignatures(this.network, this.documentHash, this.encryptionKey)
       .then(result => {
         this.hashes = result.hashes;
         return result.signatures;
       });
   }
+
 
   _setDocumentHash(hash) {
     if (this.documentHash) throw new Error("document hash already initialised");
@@ -143,7 +166,7 @@ export class File extends Document {
    */
   async verify() {
     if (this.documentHash !== undefined) return super.verify();
-    console.trace("verifying file", this.file.name);
+    logTrace("verifying file", this.file.name);
     return hashFile(this.file)
       .then(this._setDocumentHash)
       .then(super.verify.bind(this));
@@ -165,7 +188,7 @@ function _publishSignature(network, signatureAsArr, data, encryptionKey) {
   const signature = buf2hex(signatureAsArr[0]);  
   return _encodeData(data, encryptionKey)
     .then(encodedData => {
-      console.trace("publishing signature:", signature, "with data", encodedData);
+      logTrace("publishing signature:", signature, "with data", encodedData);
       return network.publishSignature(signature, encodedData);
     });
 }
@@ -191,11 +214,11 @@ async function _discoverSignatures(network, documentHash, encryptionKey) {
   async function _discoverNext(n) {
     const eSigs = await hashes.next(n);
     const strEsigs = eSigs.map(s => {return buf2hex(s)});
-    console.trace("querying the blockchain for signatures: ", strEsigs);
+    logTrace("querying the blockchain for signatures: ", strEsigs);
 
     return network.querySignatures(strEsigs)
       .then(events => {
-        console.trace("found events:", events);
+        logTrace("found events:", events);
         return Promise.all(events.map(e => _decodeSignatureEvent(e, encryptionKey)));
       })
       .then(parsedEvents => {
@@ -227,18 +250,14 @@ async function _discoverSignatures(network, documentHash, encryptionKey) {
  * Decrypts and decodes any annotation data.
  */
 async function _decodeSignatureEvent(event, encryptionKey) {
-  const web3 = new Web3(window.ethereum);
-  const decodedEvent = web3.eth.abi.decodeLog(
-    [ { "indexed": false, "internalType": "uint256", "name": "time", "type": "uint256" }, { "indexed": true, "internalType": "address", "name": "signer", "type": "address" }, { "indexed": true, "internalType": "bytes32", "name": "signature", "type": "bytes32" }, { "indexed": false, "internalType": "bytes", "name": "data", "type": "bytes" } ],
-    event.data,
-    event.topics.slice(1)
-  )
+  const log = SignatureEvent.parseLog(event);
+  if (!log) return {time: 0, signatory: '', signature: '', data: {type: 'none'}};
   return {
     event,
-    time: decodedEvent.time,
-    signatory: decodedEvent.signer,
-    signature: decodedEvent.signature,
-    data: await _decodeData(decodedEvent.data, encryptionKey)
+    time: Number(log.args[0]),
+    signatory: log.args[1],
+    signature: log.args[2],
+    data: await _decodeData(log.args[3], encryptionKey)
   }
 }
 
@@ -249,22 +268,27 @@ async function _decodeSignatureEvent(event, encryptionKey) {
 
 async function _encodeData(data, encryptionKey) {
   if (data.content === undefined || data.content === '') return '0x';
+  if (data.encrypted && typeof data.encrypted !== 'boolean') throw new Error("invalid data encrypted flag");
   let type = data.encrypted ? SIG_DATA_ENCRYPTED_FLAG : 0;
   let encData = '';
 
   switch (data.type) {
     case 'string':
+      if (typeof data.content !== 'string') throw new Error("invalid data content");
       type += SIG_DATA_TYPE_STRING;
       encData = unicodeStrToHex(data.content);
       break;
 
     case 'hex':
+      if (typeof data.content !== 'string' || ethers.isHexString(data.content) === false) {
+        throw new Error("invalid data content");
+      }
       type += SIG_DATA_TYPE_BYTES;
       encData = data.content.slice(0,2) === '0x' ? data.content.slice(2) : data.content;
       break;
 
     default:
-      throw new Error("encodeData: invalid type '"+data.type+"'");
+      throw new Error("invalid data type '"+data.type+"'");
   }
 
   const typeStr = ('00' + type.toString(16)).slice(-2);
@@ -278,7 +302,7 @@ async function _encodeData(data, encryptionKey) {
 }
 
 async function _decodeData(encData, encryptionKey) {
-  if (!encData || encData === '') return {type: 'none'}
+  if (!encData || encData === '' || encData === '0x') return {type: 'none'};
   if (encData.length < 6) return {type: "invalid", content: "data is < 6 bytes"}
   const version = encData.slice(2,4);
   const typeField = parseInt(encData.slice(4,6), 16);
@@ -295,7 +319,7 @@ async function _decodeData(encData, encryptionKey) {
       sigData = await encryptionKey.decrypt(sigData);
     }
     catch(error) {
-      console.trace("failed to decrypt signature data:", error.message);
+      logTrace("failed to decrypt signature data:", error.message);
       sigData = '';
     }
   }
