@@ -75,7 +75,7 @@ console.log('signature published successfully', receipt));
     contract: "0x73eF7A3643aCbC3D616Bd5f7Ee5153Aa5f14DB30",
     blockTime: 12000,
     creationBlock: 16764681,
-    provider: new ethers.BrowserProvider() // example provider
+    provider: new ethers.BrowserProvider(window.ethereum) // example provider
   });
 
   ... // see Node.js usage above
